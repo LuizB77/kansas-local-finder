@@ -1,5 +1,6 @@
 const API_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY
 const BASE_URL = 'https://places.googleapis.com/v1/places:searchNearby'
+const TEXT_URL = 'https://places.googleapis.com/v1/places:searchText'
 const DETAILS_BASE = 'https://places.googleapis.com/v1'
 
 // Field masks for Nearby Search
@@ -39,14 +40,48 @@ export const CATEGORY_TYPES = {
   Auto:          'car_repair',
   Health:        'pharmacy',
   Shopping:      'shopping_mall',
-  Entertainment: 'movie_theater',
+  Entertainment: ['tourist_attraction', 'amusement_park', 'night_club',
+                  'art_gallery', 'museum', 'zoo', 'bowling_alley',
+                  'movie_theater', 'performing_arts_theater'],
 }
 
-export async function searchNearby({ lat, lng, category, radius = 5000 }) {
-  const includedTypes = category ? [CATEGORY_TYPES[category]] : Object.values(CATEGORY_TYPES)
+export async function searchNearby({ lat, lng, category, keyword, radius = 5000 }) {
+  const isTextSearch = keyword && !category
 
+  if (isTextSearch) {
+    const body = {
+      textQuery: keyword,
+      maxResultCount: 20,
+      rankPreference: 'RELEVANCE',
+      locationBias: {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius,
+        },
+      },
+    }
+
+    const res = await fetch(TEXT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': API_KEY,
+        'X-Goog-FieldMask': NEARBY_FIELDS,
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err?.error?.message || `Places API error: ${res.status}`)
+    }
+
+    const data = await res.json()
+    return data.places || []
+  }
+
+  // Category / nearby search
   const body = {
-    includedTypes,
     maxResultCount: 20,
     locationRestriction: {
       circle: {
@@ -54,6 +89,13 @@ export async function searchNearby({ lat, lng, category, radius = 5000 }) {
         radius,
       },
     },
+    ...(category
+      ? { includedTypes: Array.isArray(CATEGORY_TYPES[category])
+            ? CATEGORY_TYPES[category]
+            : [CATEGORY_TYPES[category]] }
+      : { includedTypes: ['restaurant', 'cafe', 'car_repair',
+                          'pharmacy', 'shopping_mall', 'tourist_attraction',
+                          'museum', 'bowling_alley'] }),
   }
 
   const res = await fetch(BASE_URL, {
